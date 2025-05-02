@@ -1,0 +1,16 @@
+{
+  "name": "express",
+  "version": "1.0.0",
+  "description": "server for manual tool",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Mark Nichols",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "dialog-node": "^0.2.1",
+    "express": "^5.1.0"
+  }
+}
