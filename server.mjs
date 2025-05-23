@@ -17,7 +17,12 @@ var programVars = new ProgramVars();
 import dialog from 'dialog-node'; //had to overwrite the vbs script that came with the library... see "dialog-node vbs overwrite.txt"
 import { DocSection } from './DocSection.mjs';
 import { GetFile, GetFileResponse } from './GetFile.mjs';
+import { SaveFile, SaveFileResponse } from './SaveFile.mjs';
+import { simpleGit } from 'simple-git';
+import { GetDiffs, GetDiffsResponse } from './GetDiffs.mjs';
+import { CommitDiffs, CommitDiffsResponse } from './CommitDiffs.mjs';
 
+var git = null;//simpleGit();
 
 app.use(express.static(__dirname));
 // support parsing of application/json type post data
@@ -52,9 +57,9 @@ app.get('/loadDocDef/', (req, res) => {
     let docDefPath = path.join(programVars.DataRootPath, programVars.docJson.DocDefFile);
     let docDefContents = fs.readFileSync(docDefPath).toString();
     programVars.docDef = JSON.parse(docDefContents);
-    
 
 
+    openGitRemote();
 
 
     res.send(programVars);
@@ -83,7 +88,7 @@ app.post('/getFile/', (req, res) => {
       reqRes.message = "Read File Error";
     }
   }
-  else if(reqData.FileType==="imgBase64"){
+  else if (reqData.FileType === "imgBase64") {
     let fPath = path.join(programVars.DataRootPath, reqData.FileUrl);
     try {
       let fileContents = fs.readFileSync(fPath).toString('base64');
@@ -95,9 +100,124 @@ app.post('/getFile/', (req, res) => {
     }
   }
 
+
+
   res.send(reqRes);
 });
+
+app.post('/saveFile/', (req, res) => {
+  /**@type {SaveFile} */
+  let reqData = req.body;
+  let reqRes = new SaveFileResponse();
+
+  let filePath = path.join(programVars.DataRootPath, reqData.FileUrl);
+
+  try {
+    fs.writeFileSync(filePath, reqData.FileContents, { encoding: "utf-8" });
+    reqRes.success = true;
+  }
+  catch {
+    reqRes.success = false;
+  }
+
+
+  res.send(reqRes);
+});
+
+
+app.post('/getDiffs/', (req, res) => {
+  /**@type {GetDiffs} */
+  let reqData = req.body;
+  let reqRes = new GetDiffsResponse();
+
+
+  let gitDiffDone = (d) => {
+    reqRes.success = true;
+    reqRes.diffs = d;
+    res.send(reqRes);
+  };
+  GitDiff(gitDiffDone)
+
+
+});
+
+app.post('/commitDiffs/', (req, res) => {
+  /**@type {CommitDiffs} */
+  let reqData = req.body;
+  let reqRes = new CommitDiffsResponse();
+
+
+  /**
+   * 
+   * @param {boolean} d 
+   */
+  let commitDone = (d) => {
+    reqRes.success = d;
+    res.send(reqRes);
+  };
+  GitCommit(reqData.message, commitDone)
+
+
+});
+
 
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}`);
 });
+
+
+
+async function openGitRemote() {
+  try {
+    git = simpleGit(programVars.DataRootPath);
+
+  } catch (e) {
+    console.log(e);
+  }
+}
+
+/**
+ * @param {(arg0: string) => void}
+ * @returns {String}
+ */
+async function GitDiff(callback) {
+  let result = "";
+  await git.diff()
+    .then((x) => {
+      console.log(x);
+      let A = 1;
+      if (!x) {
+        console.log("no diffs");
+      }
+      else {
+        result = x;
+      }
+      callback(result);
+    });
+}
+
+async function GitCommit(message, callback) {
+  try {
+    await git.add('.');
+    await git.commit(message);
+
+    const remoteName = 'origin';
+    const branchName = 'main';
+
+    // Check if the remote is already set up
+    const remotes = await git.getRemotes();
+    const remoteExists = remotes.some(remote => remote.name === remoteName);
+
+    if (!remoteExists) {
+      const repositoryURL = 'your_repository_url'; // Replace with your repository URL
+      await git.remote(['add', remoteName, repositoryURL]);
+    }
+    await git.push(remoteName, branchName);
+    console.log('Pushed successfully');
+    callback(true);
+  } catch (error) {
+    console.error('Error pushing to GitHub:', error);
+    callback(false);
+  }
+
+}

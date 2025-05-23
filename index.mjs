@@ -5,9 +5,9 @@ import { ProgramVars } from "./ProgramVars.mjs";
 var programVars = new ProgramVars(); //client version of program vars
 import { myFetch } from "./fetchWrapper.mjs";
 import { GetFile, GetFileResponse } from "./GetFile.mjs";
-
-
-
+import { SaveFile, SaveFileResponse } from "./SaveFile.mjs";
+import { GetDiffs, GetDiffsResponse } from "./GetDiffs.mjs";
+import { CommitDiffs, CommitDiffsResponse } from "./CommitDiffs.mjs";
 
 
 
@@ -153,14 +153,38 @@ class AttributeViewer {
 // @ts-ignore
 class PreviewFrame {
     constructor() {
+
+        /**@type {DocSection | null} */
+        this.section = null;
+
+        this.css = ""; //Needs to be set with "SetCss()"
+
+        this.editMode = false;
+
+        this.beforeChangeHtml = "";
+
         /**@type {HTMLIFrameElement} */
         this.iframe = /**@type {HTMLIFrameElement}*/ (document.getElementById("iframePreview"));
         this.iframe.onload = () => {
             this.ResolveImages();
             this.ResolveXrefs();
+
+            //@ts-ignore
+            document.getElementById("menuBtn_Edit").style.backgroundColor = "inherit";
+            this.editMode = false;
+
+            //@ts-ignore
+            this.iframe.contentWindow.document.body.oninput = (e) => {
+                if (this.beforeChangeHtml !== this.iframe.contentWindow.document.body.innerHTML) {
+                    this.NeedsSave();
+                }
+                else {
+                    this.DoesntNeedSave();
+                }
+            }
         }
 
-        this.css = ""; //Needs to be set with "SetCss()"
+
 
 
         //@ts-ignore
@@ -171,8 +195,76 @@ class PreviewFrame {
             this.iframe.contentWindow.document.body.spellcheck = "true";
             //@ts-ignore
             document.getElementById("menuBtn_Edit").style.backgroundColor = "lightsalmon";
+
+            this.editMode = true;
+            //@ts-ignore
+            this.beforeChangeHtml = this.iframe.contentWindow.document.body.innerHTML;
         };
 
+
+        //@ts-ignore
+        document.getElementById("menuBtn_Save").onclick = () => {
+            //@ts-ignore
+            let html = this.iframe.contentWindow.document.body.innerHTML;
+            // console.log(html);
+
+
+            if (this.section) {
+                let sFile = new SaveFile();
+                //@ts-ignore
+                sFile.FileContents = html_beautify(html);
+                sFile.FileUrl = this.section.ContentFileUrl;
+                /**
+                 * 
+                 * @param {SaveFileResponse} res 
+                 */
+                let saveSuccess = (res) => {
+                    console.log("saved.");
+                    alert("saved");
+                    this.GetDiffs();
+                };
+                let saveFail = () => {
+                    alert("Could not save.");
+                };
+                console.log("Trying to save " + sFile.FileUrl);
+                myFetch("/saveFile/", {
+                    method: "POST",
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(sFile)
+                }, saveSuccess, saveFail)
+            }
+
+        }
+
+
+        //@ts-ignore
+        document.getElementById("menuBtn_Commit").onclick = () => {
+
+            let commitMessage = prompt("Commit Message:");
+            if (commitMessage) {
+                let commitArgs = new CommitDiffs();
+                commitArgs.message = commitMessage;
+
+                let commitSuccess = (r) => {
+                    this.GetDiffs();
+                };
+                let commitFail = () => {
+                    alert("commit failed");
+                };
+                myFetch("/commitDiffs/", {
+                    method: "POST",
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(commitArgs)
+                }, commitSuccess, commitFail)
+            }
+            else {
+                alert("must provide a message");
+            }
+        }
     }
 
     /**
@@ -180,6 +272,7 @@ class PreviewFrame {
      * @param {DocSection} section 
      */
     Update = (section) => {
+        this.section = section;
         let noContent = "<html><p style='background-color:aqua; font-weight:bold;'>This Section Does Not Have Its Own Html Content</p></html>";
         if (section.HasContent) {
             //Fetch the content
@@ -200,6 +293,10 @@ class PreviewFrame {
                 if (resp && resp.success) {
                     html = html.replace("BODYHERE", resp.data);
                     this.iframe.srcdoc = html;
+
+
+
+                    this.GetDiffs();
                 }
                 else {
                     this.iframe.srcdoc = noContent;
@@ -260,11 +357,63 @@ class PreviewFrame {
         let xrefs = Array.from(this.iframe.contentWindow.document.getElementsByTagName("xref"));
         xrefs.forEach(x => {
             x.innerHTML = "XREF";
-            x.st
         })
         let brkhere = 1;
     }
 
+    NeedsGitCommit = () => {
+        //@ts-ignore
+        document.getElementById("menuBtn_Commit").style.backgroundColor = "lightsalmon";
+    }
+    DoesntNeedGitCommit = () => {
+        //@ts-ignore
+        document.getElementById("menuBtn_Commit").style.backgroundColor = "inherit";
+    }
+
+    GetDiffs = () => {
+        /**
+ * 
+ * @param {GetDiffsResponse} diffs 
+ */
+        let getDiffsSuccess = (diffs) => {
+            if (diffs) {
+                if (diffs.success) {
+                    if (diffs.diffs) {
+                        this.NeedsGitCommit();
+                    }
+                    else {
+                        this.DoesntNeedGitCommit();
+                    }
+                }
+                else {
+                    alert("couldn't get diffs");
+                }
+            }
+            else {
+                alert("couldn't get diffs");
+            }
+        };
+        let getDiffsFailure = () => {
+            alert("couldn't get diffs");
+        };
+        myFetch("/getDiffs/", {
+            method: "POST",
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        }, getDiffsSuccess, getDiffsFailure)
+    }
+
+    NeedsSave = () => {
+        //@ts-ignore
+        document.getElementById("menuBtn_Save").style.backgroundColor = "lightsalmon";
+    }
+
+    DoesntNeedSave = () => {
+        //@ts-ignore
+        document.getElementById("menuBtn_Save").style.backgroundColor = "inherit";
+    }
 
     /**
      * 
@@ -439,6 +588,7 @@ window.onload = (event) => {
             document.getElementById("chooseFile").style.visibility = "hidden";
 
             DocSection.InitFromJson(programVars.docDef);
+            // @ts-ignore
             recursiveThroughSections(programVars.docDef, document.getElementById("tree"));
 
             data.docDef.Sections[1].NumberFigures("Figure 1-");
@@ -450,6 +600,9 @@ window.onload = (event) => {
             previewFrame.SetCss(data.docJson.CssFiles);
             //@ts-ignore
             document.getElementById("editor").style.visibility = "visible";
+
+            previewFrame.GetDiffs();
+
         };
         let getFailure = (err) => {
             throw err;
